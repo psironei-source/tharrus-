@@ -1,0 +1,498 @@
+generator client {
+    provider = "prisma-client-js"
+    binaryTargets = ["native", "linux-musl-arm64-openssl-3.0.x"]
+    output = "/home/ubuntu/neuroclareza/nextjs_space/node_modules/.prisma/client"
+}
+
+datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String        @id @default(cuid())
+  name           String?
+  email          String        @unique
+  emailVerified  DateTime?
+  image          String?
+  password       String?
+  role           String        @default("end_user") // end_user | professional | client_of_professional
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  accounts       Account[]
+  sessions       Session[]
+  assessments    Assessment[]
+  sdrResults     SDRResult[]
+  bussolaItems   BussolaItem[]
+
+  // Professional fields
+  bio            String?       @db.Text
+  specialty      String?
+  publicProfile  Boolean       @default(false)
+
+  // Professional → clients
+  clients            ClientLink[]     @relation("ProfessionalClients")
+  linkedProfessional ClientLink[]     @relation("ClientProfessional")
+  protocolTemplates  ProtocolTemplate[] @relation("ProfessionalProtocols")
+  programs           Program[]        @relation("ProfessionalPrograms")
+  clientPrograms     Program[]        @relation("ClientPrograms")
+  sessionsAsPro      ClientSession[]  @relation("SessionProfessional")
+  sessionsAsClient   ClientSession[]  @relation("SessionClient")
+
+  // Seção 10 — features avançadas
+  diaryEntries           DiaryEntry[]       @relation("DiaryAuthor")
+  interventionsCreated   Intervention[]     @relation("InterventionCreator")
+  goalsAsPro             TherapeuticGoal[]  @relation("GoalProfessional")
+  goalsAsClient          TherapeuticGoal[]  @relation("GoalClient")
+  homeworkAssigned       HomeworkTask[]     @relation("HomeworkProfessional")
+  homeworkReceived       HomeworkTask[]     @relation("HomeworkClient")
+  sessionFeedbackGiven   SessionFeedback[]  @relation("FeedbackClient")
+  riskAlertsReceived     RiskAlert[]        @relation("AlertProfessional")
+  riskAlertsFor          RiskAlert[]        @relation("AlertClient")
+
+  // Seção 12 — Diferenciação
+  caseStudiesAsPro       CaseStudy[]        @relation("CaseStudyPro")
+  caseStudiesAsClient    CaseStudy[]        @relation("CaseStudyClient")
+  beliefManifestos       BeliefManifesto[]  @relation("ManifestoAuthor")
+
+  // Módulos complementares (Seção 5)
+  valoresEssenciais      ValoresEssenciais[]  @relation("ValoresAuthor")
+  dialogoInteriorEntries DialogoInterior[]    @relation("DialogoAuthor")
+  sistema1041Entries     Sistema1041[]        @relation("Sistema1041Author")
+  ritualEntries          RitualAtivacao[]     @relation("RitualAuthor")
+  cicloEntries           CicloPensarSentir[]  @relation("CicloAuthor")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Assessment {
+  id              String         @id @default(cuid())
+  userId          String
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  completedAt     DateTime       @default(now())
+  lowReliability  Boolean        @default(false)
+  answers         Answer[]
+  scores          TravaScore[]
+
+  @@index([userId, completedAt])
+}
+
+model Answer {
+  id           String     @id @default(cuid())
+  assessmentId String
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  questionId   String
+  value        Int
+
+  @@index([assessmentId])
+}
+
+model TravaScore {
+  id           String     @id @default(cuid())
+  assessmentId String
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  travaKey     String
+  rawAverage   Float
+  normalized   Float
+  band         String
+
+  @@unique([assessmentId, travaKey])
+  @@index([assessmentId])
+}
+
+model SDRResult {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  completedAt     DateTime @default(now())
+  sociabilidade   Float
+  dominancia      Float
+  receptividade   Float
+  answersJson     String   @db.Text
+
+  @@index([userId, completedAt])
+}
+
+model BussolaItem {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  acao         String
+  dataLimite   String?
+  territorio   String?
+  responsavel  String?
+  motivo       String?
+  como         String?
+  custo        String?
+  status       String   @default("pendente")
+  position     Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([userId])
+}
+
+// ========================
+// CAMADA B2B PROFISSIONAL
+// ========================
+
+model ClientLink {
+  id               String   @id @default(cuid())
+  professionalId   String
+  professional     User     @relation("ProfessionalClients", fields: [professionalId], references: [id], onDelete: Cascade)
+  clientId         String
+  client           User     @relation("ClientProfessional", fields: [clientId], references: [id], onDelete: Cascade)
+  status           String   @default("pending") // pending | active | revoked
+  consentGiven     Boolean  @default(false)
+  consentDate      DateTime?
+  notes            String?  @db.Text
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([professionalId, clientId])
+  @@index([professionalId])
+  @@index([clientId])
+}
+
+model ProtocolTemplate {
+  id               String   @id @default(cuid())
+  professionalId   String
+  professional     User     @relation("ProfessionalProtocols", fields: [professionalId], references: [id], onDelete: Cascade)
+  name             String
+  description      String?  @db.Text
+  stepsJson        String   @db.Text // JSON array of protocol steps
+  targetProfile    String?  @db.Text // JSON description of ideal trava profile
+  isDefault        Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([professionalId])
+}
+
+model Program {
+  id               String          @id @default(cuid())
+  professionalId   String
+  professional     User            @relation("ProfessionalPrograms", fields: [professionalId], references: [id], onDelete: Cascade)
+  clientId         String
+  client           User            @relation("ClientPrograms", fields: [clientId], references: [id], onDelete: Cascade)
+  name             String
+  description      String?         @db.Text
+  promise          String?         @db.Text // promessa de transformação
+  durationWeeks    Int             @default(8)
+  status           String          @default("active") // active | completed | paused
+  startDate        DateTime        @default(now())
+  endDate          DateTime?
+  milestones       String?         @db.Text // JSON array of milestones
+  sessions         ClientSession[]
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@index([professionalId])
+  @@index([clientId])
+}
+
+model ClientSession {
+  id               String   @id @default(cuid())
+  programId        String?
+  program          Program? @relation(fields: [programId], references: [id], onDelete: SetNull)
+  professionalId   String
+  professional     User     @relation("SessionProfessional", fields: [professionalId], references: [id], onDelete: Cascade)
+  clientId         String
+  client           User     @relation("SessionClient", fields: [clientId], references: [id], onDelete: Cascade)
+  sessionNumber    Int      @default(1)
+  title            String?
+  objective        String?  @db.Text
+  toolUsed         String?  // chave da ferramenta usada (ex: 'dialogo_interior', 'bussola')
+  phase            String?  // sinergia | plano | desenvolvimento | conclusao
+  status           String   @default("scheduled") // scheduled | in_progress | completed
+  scheduledAt      DateTime?
+  completedAt      DateTime?
+
+  // Brief pré-sessão (gerado)
+  briefJson        String?  @db.Text // JSON: resumo cliente, trava foco, última sessão, perguntas sugeridas
+
+  // Checklist
+  checklistJson    String?  @db.Text // JSON array of checklist items
+
+  // Notas durante a sessão
+  sessionNotes     String?  @db.Text
+
+  // Reflexão pós-sessão
+  reflectionWhat   String?  @db.Text // o que funcionou
+  reflectionBlock  String?  @db.Text // o que travou
+  reflectionNext   String?  @db.Text // próximo passo
+
+  // Perguntas sugeridas (banco por trava)
+  suggestedQuestionsJson String? @db.Text
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([programId])
+  @@index([professionalId])
+  @@index([clientId])
+  @@index([scheduledAt])
+}
+
+// ========================
+// SEÇÃO 10 — FEATURES AVANÇADAS
+// ========================
+
+// 10.1 — Diário entre sessões
+model DiaryEntry {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation("DiaryAuthor", fields: [userId], references: [id], onDelete: Cascade)
+  content     String   @db.Text
+  mood        String?  // emoji ou label (ex: 'ansioso', 'esperançoso', 'neutro')
+  tags        String?  // JSON array de tags (travas relacionadas)
+  createdAt   DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+// 10.2 — Biblioteca de intervenções por trava
+model Intervention {
+  id               String   @id @default(cuid())
+  creatorId        String?
+  creator          User?    @relation("InterventionCreator", fields: [creatorId], references: [id], onDelete: SetNull)
+  name             String
+  description      String?  @db.Text
+  travaKey         String   // chave da trava alvo
+  category         String?  // 'native' | 'custom'
+  toolKey          String?  // chave da ferramenta (bussola, dialogo_interior, etc)
+  instructions     String?  @db.Text
+  isNative         Boolean  @default(false)
+  createdAt        DateTime @default(now())
+
+  @@index([travaKey])
+  @@index([creatorId])
+}
+
+// 10.2 — Metas SMART vinculadas à trava
+model TherapeuticGoal {
+  id               String   @id @default(cuid())
+  professionalId   String
+  professional     User     @relation("GoalProfessional", fields: [professionalId], references: [id], onDelete: Cascade)
+  clientId         String
+  client           User     @relation("GoalClient", fields: [clientId], references: [id], onDelete: Cascade)
+  travaKey         String
+  title            String
+  description      String?  @db.Text
+  measurable       String?  @db.Text  // como medir
+  deadline         DateTime?
+  status           String   @default("active") // active | achieved | abandoned
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([professionalId, clientId])
+  @@index([clientId, travaKey])
+}
+
+// 10.2 — Tarefas de casa com tracking
+model HomeworkTask {
+  id               String    @id @default(cuid())
+  professionalId   String
+  professional     User      @relation("HomeworkProfessional", fields: [professionalId], references: [id], onDelete: Cascade)
+  clientId         String
+  client           User      @relation("HomeworkClient", fields: [clientId], references: [id], onDelete: Cascade)
+  sessionId        String?
+  title            String
+  description      String?   @db.Text
+  dueDate          DateTime?
+  completedAt      DateTime?
+  status           String    @default("pending") // pending | completed | overdue | skipped
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([clientId, status])
+  @@index([professionalId])
+}
+
+// 10.3 — Micropesquisa de satisfação pós-sessão
+model SessionFeedback {
+  id          String   @id @default(cuid())
+  sessionId   String
+  clientId    String
+  client      User     @relation("FeedbackClient", fields: [clientId], references: [id], onDelete: Cascade)
+  rating      Int      // 0-10
+  comment     String?  @db.Text
+  createdAt   DateTime @default(now())
+
+  @@unique([sessionId])
+  @@index([clientId])
+}
+
+// 10.1/10.3 — Alertas de risco (visíveis só ao profissional)
+model RiskAlert {
+  id               String   @id @default(cuid())
+  professionalId   String
+  professional     User     @relation("AlertProfessional", fields: [professionalId], references: [id], onDelete: Cascade)
+  clientId         String
+  client           User     @relation("AlertClient", fields: [clientId], references: [id], onDelete: Cascade)
+  type             String   // 'trava_spike' | 'churn_risk' | 'plateau'
+  travaKey         String?
+  message          String   @db.Text
+  severity         String   @default("attention") // attention | warning
+  dismissed        Boolean  @default(false)
+  createdAt        DateTime @default(now())
+
+  @@index([professionalId, dismissed])
+  @@index([clientId])
+}
+
+// ========================
+// SEÇÃO 12 — DIFERENCIAÇÃO COMPETITIVA
+// ========================
+
+// 12.3.3 — Gerador de Material de Autoridade (case studies anonimizados)
+model CaseStudy {
+  id               String   @id @default(cuid())
+  professionalId   String
+  professional     User     @relation("CaseStudyPro", fields: [professionalId], references: [id], onDelete: Cascade)
+  clientId         String
+  client           User     @relation("CaseStudyClient", fields: [clientId], references: [id], onDelete: Cascade)
+  title            String
+  narrativeJson    String   @db.Text  // JSON: { summary, context, journey, keyInsights, outcome, methodology }
+  travasFocus      String?  @db.Text  // JSON array of trava keys
+  anonymizedName   String?  // nome fictício gerado
+  consentGiven     Boolean  @default(false)
+  consentDate      DateTime?
+  status           String   @default("draft") // draft | published | archived
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([professionalId])
+  @@index([clientId])
+}
+
+// 12.3.4 — Manifesto de Crença Personalizado
+model BeliefManifesto {
+  id               String   @id @default(cuid())
+  userId           String
+  user             User     @relation("ManifestoAuthor", fields: [userId], references: [id], onDelete: Cascade)
+  assessmentId     String?  // avaliação de referência
+  travaKey         String   // trava vinculada (geralmente 'crencas')
+  beliefsJson      String   @db.Text  // JSON: [{ limiting, origin, reinforcement, cost, empowering }]
+  manifestoText    String?  @db.Text  // manifesto narrativo gerado pelo LLM
+  status           String   @default("draft") // draft | finalized
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([userId])
+}
+
+// ===== MÓDULOS COMPLEMENTARES (Seção 5) =====
+
+// Clareza dos Valores Essenciais
+model ValoresEssenciais {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation("ValoresAuthor", fields: [userId], references: [id], onDelete: Cascade)
+  valuesJson  String   @db.Text  // JSON: [{ name, category: 'motivam'|'realizam'|'direcionam', priority }]
+  islandText  String?  @db.Text  // Resposta do exercício "ilha deserta"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+}
+
+// Diálogo Interior (Palavra → Significado → Sentimento → Comportamento → Resultado)
+model DialogoInterior {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation("DialogoAuthor", fields: [userId], references: [id], onDelete: Cascade)
+  palavra       String   // frase interna limitante
+  significado   String?  @db.Text
+  sentimento    String?
+  comportamento String?  @db.Text
+  resultado     String?  @db.Text
+  novaVersao    String?  @db.Text  // reestruturação funcional
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId])
+}
+
+// Sistema de Realização Progressiva 10-4-1
+model Sistema1041 {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation("Sistema1041Author", fields: [userId], references: [id], onDelete: Cascade)
+  objetivo   String
+  nivel      String   @default("dez")  // 'dez' | 'quatro' | 'um'
+  priority   Int      @default(0)
+  status     String   @default("active")  // active | completed | discarded
+  planoAcao  String?  @db.Text  // JSON para o objetivo nível "um"
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([userId])
+}
+
+// Ritual de Ativação e Crescimento (checklist diário)
+model RitualAtivacao {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation("RitualAuthor", fields: [userId], references: [id], onDelete: Cascade)
+  date          DateTime @db.Date
+  criacao       String?  @db.Text  // "O que vou criar hoje?"
+  aprendizado   String?  @db.Text  // "O que vou aprender?"
+  conquista     String?  @db.Text  // "O que conquistei?"
+  gratidao      String?  @db.Text  // "O que agradeço?"
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId, date])
+  @@unique([userId, date])
+}
+
+// Ciclo de Pensar e Sentir (reflexão guiada)
+model CicloPensarSentir {
+  id                 String   @id @default(cuid())
+  userId             String
+  user               User     @relation("CicloAuthor", fields: [userId], references: [id], onDelete: Cascade)
+  situacao           String   @db.Text  // Situação gatilho
+  pensamentoAuto     String?  @db.Text  // Pensamento automático
+  emocao             String?            // Emoção
+  intensidade        Int?     @default(5)  // 1-10
+  reacao             String?  @db.Text  // Reação/comportamento
+  resultadoReal      String?  @db.Text  // Resultado
+  pensamentoAlt      String?  @db.Text  // Pensamento alternativo
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([userId])
+}
