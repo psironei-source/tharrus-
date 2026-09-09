@@ -68,3 +68,6 @@ __pycache__/
 
 # Sentry
 .sentryclirc
+
+# Arquivos internos do ambiente Abacus
+.abacus.donotdelete
